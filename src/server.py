@@ -186,4 +186,4 @@ async def create_pull_request(
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host=settings.MCP_HOST, port=settings.MCP_PORT)
+    mcp.run(transport="streamable-http")
