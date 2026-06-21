@@ -29,6 +29,8 @@ mcp = FastMCP(
         "YAMLs and run logs, and write-only access to create fix branches, commit "
         "patched files, and open pull requests on pre-approved repositories."
     ),
+    host=settings.MCP_HOST,
+    port=settings.MCP_PORT,
 )
 
 
@@ -186,4 +188,4 @@ async def create_pull_request(
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse", host=settings.MCP_HOST, port=settings.MCP_PORT)
+    mcp.run(transport="sse")
