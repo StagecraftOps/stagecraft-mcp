@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     MCP_HOST: str = "0.0.0.0"
     MCP_PORT: int = 8010
 
+    # search_remediations calls back into agora-api's internal-only routes.
+    AGORA_API_URL: str = "http://agora-api-agora-api.agora.svc.cluster.local:8000"
+    INTERNAL_API_KEY: str = ""
+
 
 settings = Settings()
 
@@ -110,6 +114,44 @@ async def get_run_logs(owner: str, repo: str, run_id: int, github_token: Optiona
             if name.endswith(".txt"):
                 lines.extend(zf.read(name).decode("utf-8", errors="replace").splitlines())
         return "\n".join(lines[-300:])
+
+
+@mcp.tool()
+async def search_remediations(
+    query: Optional[str] = None,
+    repo_name: Optional[str] = None,
+    failure_category: Optional[str] = None,
+    since_days: Optional[int] = None,
+    limit: int = 8,
+) -> str:
+    """Search past pipeline-failure remediation history.
+
+    Read-only — queries agora-api's remediations + log_embeddings tables. Use
+    `query` for semantic/free-text search (e.g. "auth failures in worker"),
+    or the structured filters (repo_name, failure_category, since_days) when
+    you already know what to narrow down to. Returns each match's
+    remediation_id, repo, failure_category, root_cause, confidence_score,
+    and status — call get_run_logs/get_workflow_yaml separately if you need
+    the raw logs or YAML for a specific match.
+    """
+    if not settings.INTERNAL_API_KEY:
+        raise RuntimeError("INTERNAL_API_KEY is not configured — cannot call agora-api/internal")
+    payload = {
+        "query": query,
+        "repo_name": repo_name,
+        "failure_category": failure_category,
+        "since_days": since_days,
+        "limit": limit,
+    }
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            f"{settings.AGORA_API_URL}/internal/remediations/search",
+            json=payload,
+            headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY},
+            timeout=30.0,
+        )
+        r.raise_for_status()
+        return r.text
 
 
 @mcp.tool()
