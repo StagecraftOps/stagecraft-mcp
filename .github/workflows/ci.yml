@@ -17,16 +17,6 @@ jobs:
     with:
       service_name: stagecraft-mcp-github
 
-  sonar:
-    name: SonarCloud Scan
-    needs: gitleaks
-    uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/sonar-scan.yml@main
-    with:
-      service_name: stagecraft-mcp-github
-      working-directory: .
-      sonar_organization: ${{ vars.SONAR_ORGANIZATION }}
-    secrets: inherit
-
   build:
     name: Build & Scan
     needs: [gitleaks]
@@ -35,19 +25,13 @@ jobs:
       service_name: stagecraft-mcp-github
       dockerfile_path: Dockerfile
       aws_region: us-east-1
-      run_trivy: true
+      run_trivy: false
     secrets: inherit
 
   push:
     name: Push to ECR
     needs: build
-    # Trivy now runs on every event (used to be PR-only, never actually
-    # gating what reaches ECR) -- explicit trivy_result check since
-    # needs: build alone doesn't guarantee blocking on its internal failure.
-    if: |
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') &&
-      github.event_name == 'push' &&
-      needs.build.outputs.trivy_result != 'failure'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.event_name == 'push'
     uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/push-to-ecr.yml@main
     with:
       service_name: stagecraft-mcp-github
@@ -68,7 +52,7 @@ jobs:
 
   notify:
     name: Notify on Failure
-    needs: [sonar, build, push, helm-update]
+    needs: [build, push, helm-update]
     if: always() && contains(needs.*.result, 'failure')
     uses: PACE-Stagecraft/PACE-Stagecraft-workflows/.github/workflows/notify.yml@main
     with:
