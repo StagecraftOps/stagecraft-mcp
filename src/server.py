@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     MCP_HOST: str = "0.0.0.0"
     MCP_PORT: int = 8010
 
-    # search_remediations calls back into agora-api's internal-only routes.
-    AGORA_API_URL: str = "http://agora-api-agora-api.agora.svc.cluster.local:8000"
+    # search_remediations calls back into stagecraft-api's internal-only routes.
+    STAGECRAFT_API_URL: str = "http://stagecraft-api.stagecraft.svc.cluster.local:8000"
     INTERNAL_API_KEY: str = ""
 
 
@@ -27,9 +27,9 @@ settings = Settings()
 _GH_API = "https://api.github.com"
 
 mcp = FastMCP(
-    "agora-mcp-github",
+    "stagecraft-mcp",
     instructions=(
-        "GitHub tools for aGorA agents. Provides read-only access to workflow "
+        "GitHub tools for Stagecraft agents. Provides read-only access to workflow "
         "YAMLs and run logs, and write-only access to create fix branches, commit "
         "patched files, and open pull requests on pre-approved repositories."
     ),
@@ -74,6 +74,23 @@ def _resolve_token(org: str, github_token: Optional[str]) -> str:
 def _assert_allowed_org(owner: str) -> None:
     if settings.ALLOWED_ORG and owner != settings.ALLOWED_ORG:
         raise PermissionError(f"Repo owner '{owner}' is not in the allowed org '{settings.ALLOWED_ORG}'")
+
+
+@mcp.tool()
+async def get_pull_request_diff(owner: str, repo: str, pr_number: int, github_token: Optional[str] = None) -> str:
+    """Fetch the unified diff for a pull request. Read-only — used by the Peer Review Agent."""
+    _assert_allowed_org(owner)
+    token = _resolve_token(owner, github_token)
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"{_GH_API}/repos/{owner}/{repo}/pulls/{pr_number}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github.diff",
+            },
+        )
+        r.raise_for_status()
+        return r.text
 
 
 @mcp.tool()
@@ -124,7 +141,7 @@ async def search_remediations(
 ) -> str:
     """Search past pipeline-failure remediation history.
 
-    Read-only — queries agora-api's remediations + log_embeddings tables. Use
+    Read-only — queries stagecraft-api's remediations + log_embeddings tables. Use
     `query` for semantic/free-text search (e.g. "auth failures in worker"),
     or the structured filters (repo_name, failure_category, since_days) when
     you already know what to narrow down to. Returns each match's
@@ -133,7 +150,7 @@ async def search_remediations(
     the raw logs or YAML for a specific match.
     """
     if not settings.INTERNAL_API_KEY:
-        raise RuntimeError("INTERNAL_API_KEY is not configured — cannot call agora-api/internal")
+        raise RuntimeError("INTERNAL_API_KEY is not configured — cannot call stagecraft-api/internal")
     payload = {
         "query": query,
         "repo_name": repo_name,
@@ -143,7 +160,7 @@ async def search_remediations(
     }
     async with httpx.AsyncClient() as client:
         r = await client.post(
-            f"{settings.AGORA_API_URL}/internal/remediations/search",
+            f"{settings.STAGECRAFT_API_URL}/internal/remediations/search",
             json=payload,
             headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY},
             timeout=30.0,
@@ -154,10 +171,10 @@ async def search_remediations(
 
 @mcp.tool()
 async def create_fix_branch(owner: str, repo: str, base_sha: str, branch_name: str, github_token: Optional[str] = None) -> str:
-    """Create a new fix branch from a given commit SHA. Branch name must start with 'agora/'."""
+    """Create a new fix branch from a given commit SHA. Branch name must start with 'stagecraft/'."""
     _assert_allowed_org(owner)
-    if not branch_name.startswith("agora/"):
-        raise ValueError("Fix branches must be prefixed 'agora/' — rejecting arbitrary branch creation")
+    if not branch_name.startswith("stagecraft/"):
+        raise ValueError("Fix branches must be prefixed 'stagecraft/' — rejecting arbitrary branch creation")
     token = _resolve_token(owner, github_token)
     async with httpx.AsyncClient() as client:
         r = await client.post(
@@ -184,8 +201,8 @@ async def commit_workflow_fix(
     _assert_allowed_org(owner)
     if not workflow_path.startswith(".github/workflows/"):
         raise ValueError("commit_workflow_fix only writes to .github/workflows/ — rejecting arbitrary path")
-    if not branch.startswith("agora/"):
-        raise ValueError("Commits must target an 'agora/' branch")
+    if not branch.startswith("stagecraft/"):
+        raise ValueError("Commits must target a 'stagecraft/' branch")
     token = _resolve_token(owner, github_token)
     encoded = base64.b64encode(content.encode()).decode()
     payload = {"message": message, "content": encoded, "branch": branch}
@@ -211,10 +228,10 @@ async def create_pull_request(
     body: str,
     github_token: Optional[str] = None,
 ) -> str:
-    """Open a pull request. Head branch must start with 'agora/'."""
+    """Open a pull request. Head branch must start with 'stagecraft/'."""
     _assert_allowed_org(owner)
-    if not head.startswith("agora/"):
-        raise ValueError("PR head branch must start with 'agora/'")
+    if not head.startswith("stagecraft/"):
+        raise ValueError("PR head branch must start with 'stagecraft/'")
     token = _resolve_token(owner, github_token)
     async with httpx.AsyncClient() as client:
         r = await client.post(
