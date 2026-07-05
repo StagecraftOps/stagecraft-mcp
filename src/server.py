@@ -170,6 +170,32 @@ async def search_remediations(
 
 
 @mcp.tool()
+async def query_graph(repo_name: str, workflow_file: str, relationship: str = "depends_on") -> str:
+    """Query the CI/CD dependency/knowledge graph for structural facts about
+    one workflow — this is a graph traversal, not semantic/text search, so
+    use it for questions about what's structurally connected to a workflow
+    rather than free-text pattern search (that's search_remediations).
+
+    relationship='depends_on': what this workflow calls (reusable workflows,
+    composite actions, jobs it needs). 'depended_on_by': what triggers/calls
+    this workflow. 'governance': governance rules already linked to it.
+    'failures': failure history connected to it.
+    """
+    if not settings.INTERNAL_API_KEY:
+        raise RuntimeError("INTERNAL_API_KEY is not configured — cannot call stagecraft-api/internal")
+    payload = {"repo_name": repo_name, "workflow_file": workflow_file, "relationship": relationship}
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            f"{settings.STAGECRAFT_API_URL}/internal/graph/query",
+            json=payload,
+            headers={"X-Internal-Api-Key": settings.INTERNAL_API_KEY},
+            timeout=30.0,
+        )
+        r.raise_for_status()
+        return r.text
+
+
+@mcp.tool()
 async def create_fix_branch(owner: str, repo: str, base_sha: str, branch_name: str, github_token: Optional[str] = None) -> str:
     """Create a new fix branch from a given commit SHA. Branch name must start with 'stagecraft/'."""
     _assert_allowed_org(owner)
