@@ -7,7 +7,6 @@ import jwt
 from fastmcp import FastMCP
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -17,10 +16,8 @@ class Settings(BaseSettings):
     MCP_HOST: str = "0.0.0.0"
     MCP_PORT: int = 8010
 
-    # search_remediations calls back into stagecraft-api's internal-only routes.
     STAGECRAFT_API_URL: str = "http://stagecraft-api.stagecraft.svc.cluster.local:8000"
     INTERNAL_API_KEY: str = ""
-
 
 settings = Settings()
 
@@ -34,7 +31,6 @@ mcp = FastMCP(
         "patched files, and open pull requests on pre-approved repositories."
     ),
 )
-
 
 def _mint_installation_token(org: str) -> str:
     now = int(time.time())
@@ -58,9 +54,7 @@ def _mint_installation_token(org: str) -> str:
         r2.raise_for_status()
         return r2.json()["token"]
 
-
 def _resolve_token(org: str, github_token: Optional[str]) -> str:
-    """Return github_token if provided (OAuth path), otherwise mint a GitHub App installation token."""
     if github_token:
         return github_token
     if not settings.GITHUB_APP_ID or not settings.GITHUB_APP_PRIVATE_KEY:
@@ -70,15 +64,12 @@ def _resolve_token(org: str, github_token: Optional[str]) -> str:
         )
     return _mint_installation_token(org)
 
-
 def _assert_allowed_org(owner: str) -> None:
     if settings.ALLOWED_ORG and owner != settings.ALLOWED_ORG:
         raise PermissionError(f"Repo owner '{owner}' is not in the allowed org '{settings.ALLOWED_ORG}'")
 
-
 @mcp.tool()
 async def get_pull_request_diff(owner: str, repo: str, pr_number: int, github_token: Optional[str] = None) -> str:
-    """Fetch the unified diff for a pull request. Read-only — used by the Peer Review Agent."""
     _assert_allowed_org(owner)
     token = _resolve_token(owner, github_token)
     async with httpx.AsyncClient() as client:
@@ -92,10 +83,8 @@ async def get_pull_request_diff(owner: str, repo: str, pr_number: int, github_to
         r.raise_for_status()
         return r.text
 
-
 @mcp.tool()
 async def get_workflow_yaml(owner: str, repo: str, path: str, ref: str, github_token: Optional[str] = None) -> str:
-    """Fetch a GitHub Actions workflow YAML file from a repository."""
     _assert_allowed_org(owner)
     token = _resolve_token(owner, github_token)
     async with httpx.AsyncClient() as client:
@@ -110,10 +99,8 @@ async def get_workflow_yaml(owner: str, repo: str, path: str, ref: str, github_t
         r.raise_for_status()
         return r.text
 
-
 @mcp.tool()
 async def get_run_logs(owner: str, repo: str, run_id: int, github_token: Optional[str] = None) -> str:
-    """Download and return the last 300 lines of logs for a workflow run."""
     _assert_allowed_org(owner)
     import io, zipfile
     token = _resolve_token(owner, github_token)
@@ -130,7 +117,6 @@ async def get_run_logs(owner: str, repo: str, run_id: int, github_token: Optiona
                 lines.extend(zf.read(name).decode("utf-8", errors="replace").splitlines())
         return "\n".join(lines[-300:])
 
-
 @mcp.tool()
 async def search_remediations(
     query: Optional[str] = None,
@@ -139,16 +125,6 @@ async def search_remediations(
     since_days: Optional[int] = None,
     limit: int = 8,
 ) -> str:
-    """Search past pipeline-failure remediation history.
-
-    Read-only — queries stagecraft-api's remediations + log_embeddings tables. Use
-    `query` for semantic/free-text search (e.g. "auth failures in worker"),
-    or the structured filters (repo_name, failure_category, since_days) when
-    you already know what to narrow down to. Returns each match's
-    remediation_id, repo, failure_category, root_cause, confidence_score,
-    and status — call get_run_logs/get_workflow_yaml separately if you need
-    the raw logs or YAML for a specific match.
-    """
     if not settings.INTERNAL_API_KEY:
         raise RuntimeError("INTERNAL_API_KEY is not configured — cannot call stagecraft-api/internal")
     payload = {
@@ -168,25 +144,8 @@ async def search_remediations(
         r.raise_for_status()
         return r.text
 
-
 @mcp.tool()
 async def query_graph(workflow_file: str, repo_name: str | None = None, relationship: str = "depends_on") -> str:
-    """Query the CI/CD dependency/knowledge graph for structural facts about
-    one workflow — this is a graph traversal, not semantic/text search, so
-    use it for questions about what's structurally connected to a workflow
-    rather than free-text pattern search (that's search_remediations).
-
-    workflow_file can be a colloquial/partial name (e.g. "ci-auth-service")
-    -- it's matched fuzzily server-side against both the exact file path and
-    the workflow's display name, so you don't need the exact
-    ".github/workflows/..." path. repo_name is optional; omit it if you
-    aren't sure of the exact repo name, the match works across the whole org.
-
-    relationship='depends_on': what this workflow calls (reusable workflows,
-    composite actions, jobs it needs). 'depended_on_by': what triggers/calls
-    this workflow. 'governance': governance rules already linked to it.
-    'failures': failure history connected to it.
-    """
     if not settings.INTERNAL_API_KEY:
         raise RuntimeError("INTERNAL_API_KEY is not configured — cannot call stagecraft-api/internal")
     payload = {"repo_name": repo_name, "workflow_file": workflow_file, "relationship": relationship}
@@ -200,10 +159,8 @@ async def query_graph(workflow_file: str, repo_name: str | None = None, relation
         r.raise_for_status()
         return r.text
 
-
 @mcp.tool()
 async def create_fix_branch(owner: str, repo: str, base_sha: str, branch_name: str, github_token: Optional[str] = None) -> str:
-    """Create a new fix branch from a given commit SHA. Branch name must start with 'stagecraft/'."""
     _assert_allowed_org(owner)
     if not branch_name.startswith("stagecraft/"):
         raise ValueError("Fix branches must be prefixed 'stagecraft/' — rejecting arbitrary branch creation")
@@ -217,7 +174,6 @@ async def create_fix_branch(owner: str, repo: str, base_sha: str, branch_name: s
         r.raise_for_status()
         return f"Branch '{branch_name}' created at {base_sha}"
 
-
 @mcp.tool()
 async def commit_workflow_fix(
     owner: str,
@@ -229,7 +185,6 @@ async def commit_workflow_fix(
     current_sha: Optional[str] = None,
     github_token: Optional[str] = None,
 ) -> str:
-    """Commit a fixed workflow YAML. Path must be inside .github/workflows/."""
     _assert_allowed_org(owner)
     if not workflow_path.startswith(".github/workflows/"):
         raise ValueError("commit_workflow_fix only writes to .github/workflows/ — rejecting arbitrary path")
@@ -249,7 +204,6 @@ async def commit_workflow_fix(
         r.raise_for_status()
         return f"Committed to {workflow_path} on {branch}"
 
-
 @mcp.tool()
 async def create_pull_request(
     owner: str,
@@ -260,7 +214,6 @@ async def create_pull_request(
     body: str,
     github_token: Optional[str] = None,
 ) -> str:
-    """Open a pull request. Head branch must start with 'stagecraft/'."""
     _assert_allowed_org(owner)
     if not head.startswith("stagecraft/"):
         raise ValueError("PR head branch must start with 'stagecraft/'")
@@ -274,7 +227,6 @@ async def create_pull_request(
         r.raise_for_status()
         data = r.json()
         return data.get("html_url", "")
-
 
 if __name__ == "__main__":
     mcp.run(transport="sse", host=settings.MCP_HOST, port=settings.MCP_PORT)
