@@ -170,11 +170,17 @@ async def search_remediations(
 
 
 @mcp.tool()
-async def query_graph(repo_name: str, workflow_file: str, relationship: str = "depends_on") -> str:
+async def query_graph(workflow_file: str, repo_name: str | None = None, relationship: str = "depends_on") -> str:
     """Query the CI/CD dependency/knowledge graph for structural facts about
     one workflow — this is a graph traversal, not semantic/text search, so
     use it for questions about what's structurally connected to a workflow
     rather than free-text pattern search (that's search_remediations).
+
+    workflow_file can be a colloquial/partial name (e.g. "ci-auth-service")
+    -- it's matched fuzzily server-side against both the exact file path and
+    the workflow's display name, so you don't need the exact
+    ".github/workflows/..." path. repo_name is optional; omit it if you
+    aren't sure of the exact repo name, the match works across the whole org.
 
     relationship='depends_on': what this workflow calls (reusable workflows,
     composite actions, jobs it needs). 'depended_on_by': what triggers/calls
